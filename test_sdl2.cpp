@@ -4,9 +4,52 @@
 #include <SDL.h>
 #include <SDL_ttf.h>
 #include <SDL_mixer.h>
+#include <al.h>
+#include <alc.h>
+#include "load_png.h"
+
+ALCdevice *device;
+ALCcontext *context;
+ALuint buffer;
+ALuint source;
+void openalStart()
+{
+    device = alcOpenDevice(0);
+    context = 0;
+    buffer = 0;
+    source = 0;
+
+    if(device) context = alcCreateContext(device, 0);
+    if(context) alcMakeContextCurrent(context);
+    alGenBuffers(1, &buffer);
+    alGenSources(1, &source);
+
+    ALfloat listenerPos[]={0.0f, 0.0f, 4.0f};
+    ALfloat listenerVel[]={0.0f, 0.0f, 0.0f};
+    ALfloat listenerOri[]={0.0f, 0.0f, 1.0f, 0.0f, 1.0f, 0.0f};
+    alListenerfv(AL_POSITION, listenerPos);
+    alListenerfv(AL_VELOCITY, listenerPos);
+    alListenerfv(AL_ORIENTATION, listenerPos);
+}
+void openalEnd()
+{
+    alDeleteSources(1, &source);
+    alDeleteBuffers(1, &buffer);
+    alcMakeContextCurrent(0);
+    if(context) alcDestroyContext(context);
+    if(device) alcCloseDevice(device);
+
+    context = 0;
+    device = 0;
+}
 
 int main(int argc, char *argv[])
 {
+    openalStart();
+
+    testLoadPNG("test.png");
+    //testLoadPNG("dog.png");
+    testLoadPNG("pretty_pal.png");
     printf("Test SDL2\n");
     SDL_SetMainReady();
     if(SDL_Init(SDL_INIT_VIDEO|SDL_INIT_AUDIO))
@@ -18,6 +61,10 @@ int main(int argc, char *argv[])
     if(Mix_Init(initMixFlag)!=initMixFlag)
     {
         printf("Mix_Init has ERROR [%s]\n", Mix_GetError());
+    }
+    if(Mix_OpenAudio(22050, MIX_DEFAULT_FORMAT, 2, 1024))
+    {
+        printf("Mix_OpenAudio failed\n");
     }
 
     if(TTF_Init())
@@ -32,6 +79,34 @@ int main(int argc, char *argv[])
     }
     SDL_Window *window = SDL_CreateWindow("Test SDL2", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, 640, 480, SDL_WINDOW_OPENGL);
     SDL_Renderer *renderer = SDL_CreateRenderer(window, -1, 0);
+
+    SDL_Surface *pPNGSurface = SDL_CreateSurfaceFromPNG("pretty_pal.png");
+    if(pPNGSurface)
+    {
+        printf("Create PNG surface success\n");
+    }
+
+    Mix_Chunk *pChunk = Mix_LoadWAV("cgbgm_b0.ogg");
+    if(pChunk)
+    {
+        alBufferData(buffer, AL_FORMAT_STEREO16, pChunk->abuf, pChunk->alen, 22050);
+        printf("Load Chunk\n");
+        Mix_FreeChunk(pChunk);
+
+        ALfloat sourcePos[] = {-2.0, 0.0, 0.0};
+        ALfloat sourceVel[] = {0.0, 0.0, 0.0};
+        alSourcef(source, AL_PITCH, 1.0f);
+        alSourcef(source, AL_GAIN, 1.0f);
+        alSourcefv(source, AL_POSITION, sourcePos);
+        alSourcefv(source, AL_VELOCITY, sourceVel);
+        alSourcei(source, AL_BUFFER, buffer);
+        alSourcei(source, AL_LOOPING, AL_TRUE);
+        alSourcePlay(source);
+    }
+    else
+    {
+        printf("Mix ERROR [%s]\n", Mix_GetError());
+    }
 
     SDL_Rect textRect = {0, 0, 120, 32};
     SDL_SetTextInputRect(&textRect);
@@ -103,6 +178,16 @@ int main(int argc, char *argv[])
                 SDL_FreeSurface(editText);
             }
         }
+        if(pPNGSurface)
+        {
+            SDL_Texture *pngTexture = SDL_CreateTextureFromSurface(renderer, pPNGSurface);
+            if(pngTexture)
+            {
+                SDL_Rect rect = {0, 0, pPNGSurface->w, pPNGSurface->h};
+                SDL_RenderCopy(renderer, pngTexture, 0, &rect);
+                SDL_DestroyTexture(pngTexture);
+            }
+        }
 
         if(inputText != "")
         {
@@ -138,13 +223,25 @@ int main(int argc, char *argv[])
         // Sleep for 16.6ms
         SDL_Delay(16);
     }
+
+    if(pPNGSurface)
+    {
+        SDL_FreeSurface(pPNGSurface);
+    }
+
     SDL_StopTextInput();
     SDL_DestroyRenderer(renderer);
     SDL_DestroyWindow(window);
 
     TTF_CloseFont(font);
     TTF_Quit();
+    Mix_CloseAudio();
     Mix_Quit();
     SDL_Quit();
+
+    alSourceStop(source);
+    openalEnd();
+    printf("Program exit\n");
+    fflush(stdout);
     return 0;
 }
